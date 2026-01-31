@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-edge
+  template:
+    metadata:
+      labels:
+        app: nginx-edge
+    spec:
+      # This is the magic part! 
+      # It forces the app to go to your Edge Node (The Fake Pi)
+      nodeSelector:
+        node-type: edge
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
