@@ -18,6 +18,6 @@ spec:
         node-type: edge
       containers:
       - name: nginx
-        image: abdelmouaiz/pfe-web-app:latest
+        image: abdelmouaiz/pfe-web-app:cf14289
         ports:
         - containerPort: 80
