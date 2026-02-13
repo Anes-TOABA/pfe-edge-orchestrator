@@ -1,45 +1,40 @@
 name: Production Build & Deploy
 
-# TRIGGER: Run this ONLY when code in the website folder changes
 on:
   push:
     branches: [ "main" ]
     paths:
       - 'src/website/**'
+      - '.github/workflows/ci-cd.yaml'
 
-# PERMISSIONS: Allow the robot to write changes back to the repo
 permissions:
   contents: write
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # Define outputs so the next job can read the version tag
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
-      # 1. GET THE CODE
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. LOG IN TO DOCKER HUB (Securely using Secrets)
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 3. SET VARIABLES (Production Grade: Use Short Commit Hash)
       - name: Set Image Tag
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      # 4. BUILD & PUSH (The Heavy Lifting)
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: src/website
           push: true
-          # We push TWO tags:
-          # 1. The Commit Hash (for production reliability)
-          # 2. 'latest' (for easy manual testing)
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/pfe-web-app:${{ steps.vars.outputs.sha_short }}
             ${{ secrets.DOCKER_USERNAME }}/pfe-web-app:latest
@@ -51,31 +46,25 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
+          ref: main
+          fetch-depth: 0
 
-      # 5. GITOPS UPDATE (The Bridge to ArgoCD)
-      # This step modifies your deployment.yaml to use the NEW image we just built.
       - name: Update Kubernetes Manifest
         run: |
-          # Configure Git Identity (The Robot needs a name)
           git config --global user.name 'GitHub Actions CI'
           git config --global user.email 'actions@github.com'
 
-          # DEFINE VARIABLES
+          # GET THE VERSION FROM THE PREVIOUS JOB
           NEW_TAG=${{ needs.build-and-push.outputs.sha_short }}
           IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/pfe-web-app
           FILE_PATH=edge-apps/nginx/deployment.yaml
-
-          # Get the Short SHA again (needs context from previous job, or re-calculate)
-
-          SHA_SHORT=$(git rev-parse --short HEAD)
+          
+          echo "Updating image to: $IMAGE_NAME:$NEW_TAG"
 
           # EDIT THE FILE
+          sed -i "s|image: .*|image: $IMAGE_NAME:$NEW_TAG|g" $FILE_PATH
 
-          # We use 'sed' to find the image line and replace the tag
-          sed -i "s|image: .*|image: $IMAGE_NAME:$SHA_SHORT|g" $FILE_PATH
-
-          # CHECK & COMMIT
+          # COMMIT AND PUSH
           git add $FILE_PATH
-
-          git commit -m "CI: Updated image to version $SHA_SHORT"
+          git commit -m "🚀CI: Updated image to version $NEW_TAG" || echo "No changes to commit"
           git push
